@@ -1,10 +1,12 @@
+
 // Importando o módulo Fastify
+require('dotenv').config({ path: '.env.dev' });
 const fastify = require('fastify')();
 const { MongoClient, ObjectId } = require('mongodb');
 
 // Configurações do MongoDB
-const mongoUrl = 'mongodb://localhost:27017';
-const dbName = 'gestao_espolios';
+const mongoUrl = process.env.MONGO_URL;
+const dbName = process.env.DB_NAME;
 
 let db;
 

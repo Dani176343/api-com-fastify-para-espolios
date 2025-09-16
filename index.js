@@ -25,18 +25,21 @@ fastify.addHook('onReady', async () => {
 
 // Rota para obter todos os itens de uma coleção
 fastify.get('/espolios/:collectionName', async (request, reply) => {
+  console.log(`GET /espolios/${request.params.collectionName}`);
   try {
     const { collectionName } = request.params;
     const collection = db.collection(collectionName);
     const items = await collection.find().toArray();
     return items;
   } catch (error) {
+    console.error('Erro ao buscar itens:', error);
     reply.status(500).send({ error: 'Erro ao buscar itens' });
   }
 });
 
 // Rota para obter um item por ID de uma coleção
 fastify.get('/espolios/:collectionName/:id', async (request, reply) => {
+  console.log(`GET /espolios/${request.params.collectionName}/${request.params.id}`);
   try {
     const { collectionName, id } = request.params;
     const collection = db.collection(collectionName);
@@ -46,12 +49,14 @@ fastify.get('/espolios/:collectionName/:id', async (request, reply) => {
     }
     return item;
   } catch (error) {
+    console.error('Erro ao buscar o item:', error);
     reply.status(500).send({ error: 'Erro ao buscar o item' });
   }
 });
 
 // Rota para adicionar um novo item em uma coleção
 fastify.post('/espolios/:collectionName', async (request, reply) => {
+  console.log(`POST /espolios/${request.params.collectionName}`, request.body);
   try {
     const { collectionName } = request.params;
     const collection = db.collection(collectionName);
@@ -60,16 +65,20 @@ fastify.post('/espolios/:collectionName', async (request, reply) => {
     const insertedItem = await collection.findOne({ _id: result.insertedId });
     reply.status(201).send(insertedItem);
   } catch (error) {
+    console.error('Erro ao adicionar o item:', error);
     reply.status(500).send({ error: 'Erro ao adicionar o item' });
   }
 });
 
 // Rota para editar um item em uma coleção
 fastify.put('/espolios/:collectionName/:id', async (request, reply) => {
+  console.log(`PUT /espolios/${request.params.collectionName}/${request.params.id}`, request.body);
   try {
     const { collectionName, id } = request.params;
     const collection = db.collection(collectionName);
     const updatedItem = request.body;
+    // Remove o campo _id do objeto updatedItem para evitar o erro de imutabilidade
+    delete updatedItem._id;
     const result = await collection.updateOne({ _id: new ObjectId(id) }, { $set: updatedItem });
     if (result.matchedCount === 0) {
       return reply.status(404).send({ error: 'Item não encontrado' });
@@ -77,12 +86,14 @@ fastify.put('/espolios/:collectionName/:id', async (request, reply) => {
     const item = await collection.findOne({ _id: new ObjectId(id) });
     return item;
   } catch (error) {
+    console.error('Erro ao editar o item:', error);
     reply.status(500).send({ error: 'Erro ao editar o item' });
   }
 });
 
 // Rota para deletar um item em uma coleção
 fastify.delete('/espolios/:collectionName/:id', async (request, reply) => {
+  console.log(`DELETE /espolios/${request.params.collectionName}/${request.params.id}`);
   try {
     const { collectionName, id } = request.params;
     const collection = db.collection(collectionName);
@@ -92,6 +103,7 @@ fastify.delete('/espolios/:collectionName/:id', async (request, reply) => {
     }
     reply.status(204).send();
   } catch (error) {
+    console.error('Erro ao deletar o item:', error);
     reply.status(500).send({ error: 'Erro ao deletar o item' });
   }
 });

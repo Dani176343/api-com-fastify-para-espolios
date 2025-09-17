@@ -12,8 +12,11 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@fastify/multipart": "^9.2.1",
+    "axios": "^1.12.2",
     "dotenv": "^17.2.2",
     "fastify": "^5.6.0",
+    "form-data": "^4.0.4",
     "mongodb": "^6.19.0"
   },
   "devDependencies": {

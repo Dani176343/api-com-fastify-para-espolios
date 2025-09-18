@@ -57,7 +57,9 @@ async function fetchTokenFromServer() {
 
 // Função para enviar a imagem para a API externa
 async function uploadImageViaExternalAPI(fileBuffer, fileName) {
+    console.log(`[uploadImageViaExternalAPI] Iniciando upload da imagem: ${fileName}`);
     if (!currentToken) {
+        console.log('[uploadImageViaExternalAPI] Token não encontrado, buscando um novo token.');
         await fetchTokenFromServer();
     }
 
@@ -66,34 +68,63 @@ async function uploadImageViaExternalAPI(fileBuffer, fileName) {
     form.append('publicFile', 'true');
     form.append('folder', 'associacoes-abt-docs/nomeassociacaoxpto/espolio');
 
+    const uploadUrl = `${externalApiUrl}/RestServices/api/v2/repositorio/files`;
+    console.log(`[uploadImageViaExternalAPI] Enviando imagem para: ${uploadUrl}`);
+
     try {
-        const result = await axios.post(`${externalApiUrl}/RestServices/api/v2/repositorio/files`, form, {
+        const result = await axios.post(uploadUrl, form, {
             headers: {
                 ...form.getHeaders(),
                 'Authorization': `Bearer ${currentToken}`
             }
         });
 
+        console.log('[uploadImageViaExternalAPI] Resposta da API externa:', result.status, JSON.stringify(result.data, null, 2));
+
         if (result.status === 200 && result.data.payload && result.data.payload.url) {
+            console.log(`[uploadImageViaExternalAPI] Upload bem-sucedido. URL da imagem: ${result.data.payload.url}`);
             return result.data.payload.url;
+        } else {
+            console.error('[uploadImageViaExternalAPI] A API externa retornou um status inesperado ou payload inválido.');
+            throw new Error('Falha ao enviar imagem para o serviço externo.');
         }
     } catch (error) {
+        console.error('[uploadImageViaExternalAPI] Erro ao enviar imagem:', error.message);
+        if (error.response) {
+            console.error('[uploadImageViaExternalAPI] Detalhes do erro da API:', error.response.status, JSON.stringify(error.response.data, null, 2));
+        }
+
         if (error.response && error.response.status === 401) { // Unauthorized
-            console.log('Token expirado ou inválido. Obtendo um novo token...');
+            console.log('[uploadImageViaExternalAPI] Token expirado ou inválido. Obtendo um novo token e tentando novamente...');
             await fetchTokenFromServer();
-            // Tenta novamente com o novo token
-            const retryResult = await axios.post(`${externalApiUrl}/RestServices/api/v2/files`, form, {
-                headers: {
-                    ...form.getHeaders(),
-                    'Authorization': `Bearer ${currentToken}`
+            
+            try {
+                const retryResult = await axios.post(uploadUrl, form, {
+                    headers: {
+                        ...form.getHeaders(),
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                console.log('[uploadImageViaExternalAPI] Resposta da API externa na nova tentativa:', retryResult.status, JSON.stringify(retryResult.data, null, 2));
+
+                if (retryResult.status === 200 && retryResult.data.payload && retryResult.data.payload.url) {
+                    console.log(`[uploadImageViaExternalAPI] Upload bem-sucedido na nova tentativa. URL da imagem: ${retryResult.data.payload.url}`);
+                    return retryResult.data.payload.url;
+                } else {
+                    console.error('[uploadImageViaExternalAPI] A API externa retornou um status inesperado ou payload inválido na nova tentativa.');
+                    throw new Error('Falha ao enviar imagem para o serviço externo.');
                 }
-            });
-            if (retryResult.status === 200 && retryResult.data.payload && retryResult.data.payload.url) {
-                return retryResult.data.payload.url;
+            } catch (retryError) {
+                console.error('[uploadImageViaExternalAPI] Erro na nova tentativa de enviar imagem:', retryError.message);
+                if (retryError.response) {
+                    console.error('[uploadImageViaExternalAPI] Detalhes do erro da API na nova tentativa:', retryError.response.status, JSON.stringify(retryError.response.data, null, 2));
+                }
+                throw new Error('Falha ao enviar imagem para o serviço externo.');
             }
         }
-        console.error('Erro ao enviar imagem para API externa:', error.response ? error.response.data : error.message);
-        throw new Error('Falha ao enviar imagem para o serviço externo.');
+        
+        throw error;
     }
 }
 
@@ -162,11 +193,13 @@ fastify.post('/espolios/:collectionName', async (request, reply) => {
 
     for await (const part of parts) {
       if (part.type === 'file') {
+        console.log(`[POST /espolios] Arquivo recebido: ${part.filename}`);
         const buffer = await part.toBuffer();
         const imageUrl = await uploadImageViaExternalAPI(buffer, part.filename);
         if (!newItem.catalogacao) newItem.catalogacao = {};
         if (!newItem.catalogacao.anexo) newItem.catalogacao.anexo = {};
         newItem.catalogacao.anexo.imagem = imageUrl;
+        console.log(`[POST /espolios] Imagem enviada e URL recebida: ${imageUrl}`);
       } else {
         const keys = part.fieldname.split('.');
         const lastKey = keys[keys.length - 1];
@@ -193,6 +226,7 @@ fastify.put('/espolios/:collectionName/:id', async (request, reply) => {
     const parts = request.parts();
     const updatedFields = {};
     const arrayFields = ['outraNumeracao', 'nucleo', 'categoria', 'materiais', 'tecnicas', 'lugares', 'intervencoes', 'objetosAssociados', 'bibliografia'];
+    let imageUrl = null;
 
     function setNestedProperty(obj, path, value, isArrayField) {
       const keys = path.split('.');
@@ -217,17 +251,23 @@ fastify.put('/espolios/:collectionName/:id', async (request, reply) => {
 
     for await (const part of parts) {
       if (part.type === 'file') {
+        console.log(`[PUT /espolios] Arquivo recebido: ${part.filename}`);
         const buffer = await part.toBuffer();
-        const imageUrl = await uploadImageViaExternalAPI(buffer, part.filename);
-        if (!updatedFields.catalogacao) updatedFields.catalogacao = {};
-        if (!updatedFields.catalogacao.anexo) updatedFields.catalogacao.anexo = {};
-        updatedFields.catalogacao.anexo.imagem = imageUrl;
+        imageUrl = await uploadImageViaExternalAPI(buffer, part.filename);
+        console.log(`[PUT /espolios] Imagem enviada e URL recebida: ${imageUrl}`);
       } else {
         const keys = part.fieldname.split('.');
         const lastKey = keys[keys.length - 1];
         const isArrayField = arrayFields.includes(lastKey);
         setNestedProperty(updatedFields, part.fieldname, part.value, isArrayField);
       }
+    }
+
+    if (imageUrl) {
+        console.log(`[PUT /espolios] Atualizando o campo da imagem com a URL: ${imageUrl}`);
+        if (!updatedFields.catalogacao) updatedFields.catalogacao = {};
+        if (!updatedFields.catalogacao.anexo) updatedFields.catalogacao.anexo = {};
+        updatedFields.catalogacao.anexo.imagem = imageUrl;
     }
     
     delete updatedFields._id;

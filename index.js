@@ -66,7 +66,7 @@ async function uploadImageViaExternalAPI(fileBuffer, fileName) {
     const form = new FormData();
     form.append('file', fileBuffer, { filename: fileName });
     form.append('publicFile', 'true');
-    form.append('folder', 'associacoes-abt-docs/nomeassociacaoxpto/espolio');
+    form.append('folder', 'associacoes-abt-docs/adimo/espolio');
 
     const uploadUrl = `${externalApiUrl}/RestServices/api/v2/repositorio/files`;
     console.log(`[uploadImageViaExternalAPI] Enviando imagem para: ${uploadUrl}`);
@@ -167,46 +167,26 @@ fastify.post('/espolios/:collectionName', async (request, reply) => {
     const { collectionName } = request.params;
     const collection = db.collection(collectionName);
     const parts = request.parts();
-    const newItem = {};
-    const arrayFields = ['outraNumeracao', 'nucleo', 'categoria', 'materiais', 'tecnicas', 'lugares', 'intervencoes', 'objetosAssociados', 'bibliografia'];
-
-    function setNestedProperty(obj, path, value, isArrayField) {
-      const keys = path.split('.');
-      let current = obj;
-      for (let i = 0; i < keys.length - 1; i++) {
-        const key = keys[i];
-        if (!current[key] || typeof current[key] !== 'object') {
-          current[key] = {};
-        }
-        current = current[key];
-      }
-      const lastKey = keys[keys.length - 1];
-      if (isArrayField) {
-        if (!current[lastKey]) {
-          current[lastKey] = [];
-        }
-        current[lastKey].push(value);
-      } else {
-        current[lastKey] = value;
-      }
-    }
+    let espolioData = {};
+    const imageUrls = [];
 
     for await (const part of parts) {
-      if (part.type === 'file') {
+      if (part.fieldname === 'espolio') {
+        espolioData = JSON.parse(part.value);
+      } else if (part.fieldname.startsWith('imagem_') && part.type === 'file') {
         console.log(`[POST /espolios] Arquivo recebido: ${part.filename}`);
         const buffer = await part.toBuffer();
         const imageUrl = await uploadImageViaExternalAPI(buffer, part.filename);
-        if (!newItem.catalogacao) newItem.catalogacao = {};
-        if (!newItem.catalogacao.anexo) newItem.catalogacao.anexo = {};
-        newItem.catalogacao.anexo.imagem = imageUrl;
+        imageUrls.push(imageUrl);
         console.log(`[POST /espolios] Imagem enviada e URL recebida: ${imageUrl}`);
-      } else {
-        const keys = part.fieldname.split('.');
-        const lastKey = keys[keys.length - 1];
-        const isArrayField = arrayFields.includes(lastKey);
-        setNestedProperty(newItem, part.fieldname, part.value, isArrayField);
       }
     }
+
+    if (imageUrls.length > 0) {
+      if (!espolioData.catalogacao) espolioData.catalogacao = {};
+      espolioData.catalogacao.anexos = imageUrls.map(url => ({ imagem: url }));
+    }
+    const newItem = espolioData;
 
     const result = await collection.insertOne(newItem);
     const insertedItem = await collection.findOne({ _id: result.insertedId });
@@ -224,54 +204,41 @@ fastify.put('/espolios/:collectionName/:id', async (request, reply) => {
     const { collectionName, id } = request.params;
     const collection = db.collection(collectionName);
     const parts = request.parts();
-    const updatedFields = {};
-    const arrayFields = ['outraNumeracao', 'nucleo', 'categoria', 'materiais', 'tecnicas', 'lugares', 'intervencoes', 'objetosAssociados', 'bibliografia'];
-    let imageUrl = null;
-
-    function setNestedProperty(obj, path, value, isArrayField) {
-      const keys = path.split('.');
-      let current = obj;
-      for (let i = 0; i < keys.length - 1; i++) {
-        const key = keys[i];
-        if (!current[key] || typeof current[key] !== 'object') {
-          current[key] = {};
-        }
-        current = current[key];
-      }
-      const lastKey = keys[keys.length - 1];
-      if (isArrayField) {
-        if (!current[lastKey]) {
-          current[lastKey] = [];
-        }
-        current[lastKey].push(value);
-      } else {
-        current[lastKey] = value;
-      }
-    }
+    let espolioData = {};
+    const newImageUrls = [];
 
     for await (const part of parts) {
-      if (part.type === 'file') {
+      if (part.fieldname === 'espolio') {
+        espolioData = JSON.parse(part.value);
+      } else if (part.fieldname.startsWith('imagem_') && part.type === 'file') {
         console.log(`[PUT /espolios] Arquivo recebido: ${part.filename}`);
         const buffer = await part.toBuffer();
-        imageUrl = await uploadImageViaExternalAPI(buffer, part.filename);
+        const imageUrl = await uploadImageViaExternalAPI(buffer, part.filename);
+        newImageUrls.push(imageUrl);
         console.log(`[PUT /espolios] Imagem enviada e URL recebida: ${imageUrl}`);
-      } else {
-        const keys = part.fieldname.split('.');
-        const lastKey = keys[keys.length - 1];
-        const isArrayField = arrayFields.includes(lastKey);
-        setNestedProperty(updatedFields, part.fieldname, part.value, isArrayField);
       }
     }
 
-    if (imageUrl) {
-        console.log(`[PUT /espolios] Atualizando o campo da imagem com a URL: ${imageUrl}`);
-        if (!updatedFields.catalogacao) updatedFields.catalogacao = {};
-        if (!updatedFields.catalogacao.anexo) updatedFields.catalogacao.anexo = {};
-        updatedFields.catalogacao.anexo.imagem = imageUrl;
+    // Fetch the existing document to merge image URLs
+    const existingEspolio = await collection.findOne({ _id: new ObjectId(id) });
+    const existingAnexos = (existingEspolio && existingEspolio.catalogacao && existingEspolio.catalogacao.anexos) || [];
+
+    // Merge new image URLs with existing ones
+    if (newImageUrls.length > 0) {
+      if (!espolioData.catalogacao) espolioData.catalogacao = {};
+      espolioData.catalogacao.anexos = [...existingAnexos, ...newImageUrls.map(url => ({ imagem: url, descricao: '' }))];
+    } else {
+      // If no new images are uploaded, retain existing images from espolioData if present
+      if (espolioData.catalogacao && espolioData.catalogacao.anexos) {
+        espolioData.catalogacao.anexos = espolioData.catalogacao.anexos;
+      } else {
+        espolioData.catalogacao.anexos = existingAnexos;
+      }
     }
-    
-    delete updatedFields._id;
-    const result = await collection.updateOne({ _id: new ObjectId(id) }, { $set: updatedFields });
+
+    delete espolioData._id; // Remove _id from the update payload
+
+    const result = await collection.updateOne({ _id: new ObjectId(id) }, { $set: espolioData });
     if (result.matchedCount === 0) {
       return reply.status(404).send({ error: 'Item não encontrado' });
     }

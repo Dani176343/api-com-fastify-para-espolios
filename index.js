@@ -226,7 +226,7 @@ fastify.put('/espolios/:collectionName/:id', async (request, reply) => {
     // Merge new image URLs with existing ones
     if (newImageUrls.length > 0) {
       if (!espolioData.catalogacao) espolioData.catalogacao = {};
-      espolioData.catalogacao.anexos = [...existingAnexos, ...newImageUrls.map(url => ({ imagem: url, descricao: '' }))];
+      espolioData.catalogacao.anexos = [...existingAnexos, ...newImageUrls.map(url => ({ imagem: url }))];
     } else {
       // If no new images are uploaded, retain existing images from espolioData if present
       if (espolioData.catalogacao && espolioData.catalogacao.anexos) {
